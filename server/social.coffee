@@ -135,7 +135,7 @@ module.exports = exports = (log, loga, argv) ->
         idProvider = _.head(_.keys(req.session.passport.user))
         console.log 'idProvider: ', idProvider
         switch idProvider
-          when 'github', 'google', 'twitter'
+          when 'github', 'google', 'twitter', 'gitlab'
             if _.isEqual(owner[idProvider].id, req.session.passport.user[idProvider].id)
               return true
             else
@@ -165,7 +165,7 @@ module.exports = exports = (log, loga, argv) ->
       return false
 
     switch idProvider
-      when "github", "google", "twitter"
+      when "github", "google", "twitter", "gitlab"
         if _.isEqual(admin[idProvider], req.session.passport.user[idProvider].id)
           return true
         else
@@ -193,6 +193,26 @@ module.exports = exports = (log, loga, argv) ->
 
     passport.deserializeUser = (obj, req, done) ->
       done(null, obj)
+
+    if argv.gitlab_clientID? and argv.gitlab_clientSecret?
+      ids.push('gitlab')
+      GitlabStrategy = require('passport-gitlab2')
+
+      gitlabStrategyName = callbackHost + 'Gitlab'
+
+      passport.use(gitlabStrategyName, new GitlabStrategy({
+        callbackURL: callbackProtocol + '//' + callbackHost + '/auth/gitlab/callback'
+        clientID: argv.gitlab_clientID
+        clientSecret: argv.gitlab_clientSecret
+        baseURL: argv.gitlab_baseURL || "https://gitlab.com/"
+        }, (accessToken, refreshToken, profile, cb) ->
+          user.gitlab = {
+            id: profile.id
+            username: profile.username
+            displayName: profile.displayName
+            emails: profile.emails
+          }
+          cb(null, user)))
 
     # Github Strategy
     if argv.github_clientID? and argv.github_clientSecret?
@@ -275,6 +295,11 @@ module.exports = exports = (log, loga, argv) ->
     app.use(passport.initialize())
     app.use(passport.session())
 
+    # Gitlab
+    app.get('/auth/gitlab', passport.authenticate(gitlabStrategyName, {scope: 'read_user'}), (req, res) -> )
+    app.get('/auth/gitlab/callback',
+      passport.authenticate(gitlabStrategyName, { successRedirect: '/auth/loginDone', failureRedirect: '/auth/loginDialog'}))
+
     # Github
     app.get('/auth/github', passport.authenticate(githubStrategyName, {scope: 'user:email'}), (req, res) -> )
     app.get('/auth/github/callback',
@@ -318,6 +343,7 @@ module.exports = exports = (log, loga, argv) ->
       _(ids).forEach (scheme) ->
         switch scheme
           when "twitter" then schemeButtons.push({button: "<a href='/auth/twitter' class='scheme-button twitter-button'><span>Twitter</span></a>"})
+          when "gitlab" then schemeButtons.push({button: "<a href='/auth/gitlab' class='scheme-button gitlab-button'><span>Gitlab</span></a>"})
           when "github" then schemeButtons.push({button: "<a href='/auth/github' class='scheme-button github-button'><span>Github</span></a>"})
           when "google"
             schemeButtons.push({button: "<a href='#' id='google' class='scheme-button google-button'><span>Google</span></a>
@@ -469,6 +495,7 @@ module.exports = exports = (log, loga, argv) ->
         _(altSchemes).forEach (scheme) ->
           switch scheme
             when "twitter" then schemeButtons.push({button: "<a href='/auth/twitter' class='scheme-button twitter-button'><span>Twitter</span></a>"})
+            when "gitlab" then schemeButtons.push({button: "<a href='/auth/gitlab' class='scheme-button gitlab-button'><span>Gitlab</span></a>"})
             when "github" then schemeButtons.push({button: "<a href='/auth/github' class='scheme-button github-button'><span>Github</span></a>"})
             when "google" then schemeButtons.push({button: "<a href='/auth/google' class='scheme-button google-button'><span>Google</span></a>"})
 
@@ -511,6 +538,14 @@ module.exports = exports = (log, loga, argv) ->
               username: user.twitter.username
             }
           }
+          when "gitlab" then {
+            name: user.gitlab.displayName
+            gitlab: {
+              id: user.gitlab.id
+              username: user.gitlab.username
+              email: user.gitlab.emails
+            }
+          }                    
           when "github" then {
             name: user.github.displayName
             github: {
@@ -587,6 +622,14 @@ module.exports = exports = (log, loga, argv) ->
                 username: user.twitter.username
               }
             }
+            when "gitlab" then {
+              name: user.gitlab.displayName
+              gitlab: {
+                id: user.gitlab.id
+                username: user.gitlab.username
+                email: user.gitlab.emails
+              }
+            }                        
             when "github" then {
               name: user.github.displayName
               github: {
